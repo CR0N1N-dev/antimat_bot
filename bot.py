@@ -32,9 +32,10 @@ def check_bad_words(text):
         response = requests.post(url, headers=headers, json=data, timeout=10)
         result = response.json()
         output = result["candidates"][0]["content"]["parts"][0]["text"].lower()
+        logging.info(f"Gemini ответ: {output}")
         return "да" in output
     except Exception as e:
-        print("Ошибка Gemini API:", e)
+        logging.error(f"Ошибка Gemini API: {e}")
         return False
 
 # --- Команда /start ---
@@ -48,15 +49,29 @@ async def start(msg: Message):
 # --- Проверка сообщений в группе ---
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def detect_bad_words(msg: Message):
-    if msg.text and check_bad_words(msg.text):
+    # Игнорируем сообщения от ботов
+    if msg.from_user.is_bot:
+        return
+    
+    # Проверяем только текстовые сообщения
+    if not msg.text:
+        return
+    
+    logging.info(f"Проверяю сообщение: {msg.text}")
+    
+    if check_bad_words(msg.text):
         try:
             await bot.delete_message(msg.chat.id, msg.message_id)
-            await msg.answer(
+            warning = await msg.answer(
                 f"{msg.from_user.first_name}, ты сказал плохое слово! 😡\n"
                 "Не говори больше плохие слова, иначе будет плохо."
             )
+            # Удаляем предупреждение через 10 секунд
+            import asyncio
+            await asyncio.sleep(10)
+            await warning.delete()
         except Exception as e:
-            print("Ошибка при удалении:", e)
+            logging.error(f"Ошибка при удалении: {e}")
 
 # --- Сообщения в личке ---
 @dp.message(F.chat.type == ChatType.PRIVATE)
