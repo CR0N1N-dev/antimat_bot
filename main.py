@@ -9,7 +9,7 @@ from aiogram.enums import ChatType
 from aiogram import F
 
 # 🔑 Токен бота
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8234719124:AAF1F24fR1fkdzrEaELm4Bnsyc0iFgvkxyE")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
