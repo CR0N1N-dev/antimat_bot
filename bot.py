@@ -2,7 +2,7 @@ import os
 import logging
 import requests
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.enums import ChatType
@@ -18,22 +18,37 @@ dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Проверка текста через Gemini ---
+# --- Проверка мата через Gemini ---
 def check_bad_words(text):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
+    
+    prompt = f"""Проверь текст на наличие мата, нецензурной лексики, оскорблений.
+Текст: "{text}"
+
+Ответь ТОЛЬКО одним словом: ДА или НЕТ
+ДА - если есть мат
+НЕТ - если мата нет"""
+
     data = {
         "contents": [{
-            "parts": [{"text": f"Определи, содержит ли это сообщение нецензурную лексику (мат): '{text}'. Ответь только 'да' или 'нет'."}]
-        }]
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 10
+        }
     }
 
     try:
         response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
         result = response.json()
-        output = result["candidates"][0]["content"]["parts"][0]["text"].lower()
-        logging.info(f"Gemini ответ: {output}")
-        return "да" in output
+        
+        output = result["candidates"][0]["content"]["parts"][0]["text"].strip().lower()
+        logging.info(f"Проверка '{text[:50]}...' -> Gemini: {output}")
+        
+        return "да" in output or "yes" in output
     except Exception as e:
         logging.error(f"Ошибка Gemini API: {e}")
         return False
@@ -42,43 +57,49 @@ def check_bad_words(text):
 @dp.message(CommandStart())
 async def start(msg: Message):
     if msg.chat.type == ChatType.PRIVATE:
-        await msg.answer("Я работаю только в группе, пожалуйста перейди в группу!")
+        await msg.answer("❌ Я работаю только в группах!")
     else:
-        await msg.answer("Привет! Я слежу за порядком 👀")
+        await msg.answer("✅ Антимат-бот активирован! Слежу за порядком 👮")
 
 # --- Проверка сообщений в группе ---
-@dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+@dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}) & F.text)
 async def detect_bad_words(msg: Message):
-    # Игнорируем сообщения от ботов
-    if msg.from_user.is_bot:
+    # Пропускаем ботов и команды
+    if msg.from_user.is_bot or (msg.text and msg.text.startswith("/")):
         return
     
-    # Проверяем только текстовые сообщения
-    if not msg.text:
-        return
-    
-    logging.info(f"Проверяю сообщение: {msg.text}")
+    logging.info(f"Проверяю: {msg.text}")
     
     if check_bad_words(msg.text):
         try:
-            await bot.delete_message(msg.chat.id, msg.message_id)
+            # Удаляем сообщение с матом
+            await msg.delete()
+            
+            # Отправляем предупреждение
             warning = await msg.answer(
-                f"{msg.from_user.first_name}, ты сказал плохое слово! 😡\n"
-                "Не говори больше плохие слова, иначе будет плохо."
+                f"⚠️ {msg.from_user.first_name}, не матерись!\n"
+                f"Твоё сообщение удалено."
             )
-            # Удаляем предупреждение через 10 секунд
+            
+            # Удаляем предупреждение через 5 секунд
             import asyncio
-            await asyncio.sleep(10)
-            await warning.delete()
+            await asyncio.sleep(5)
+            try:
+                await warning.delete()
+            except:
+                pass
+                
         except Exception as e:
-            logging.error(f"Ошибка при удалении: {e}")
+            logging.error(f"Не могу удалить сообщение: {e}")
+            logging.error("Проверь права бота: он должен быть админом с правом удаления сообщений!")
 
 # --- Сообщения в личке ---
 @dp.message(F.chat.type == ChatType.PRIVATE)
 async def private_message(msg: Message):
-    await msg.answer("Я работаю только в группе, пожалуйста перейди в группу!")
+    await msg.answer("❌ Я работаю только в группах! Добавь меня в группу и сделай администратором.")
 
 # --- Запуск бота ---
 if __name__ == "__main__":
     import asyncio
+    logging.info("🚀 Бот запущен!")
     asyncio.run(dp.start_polling(bot))
